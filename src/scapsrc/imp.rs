@@ -1,3 +1,5 @@
+// Copyright (C) 2024 Marcus L. Hanestad <marlhan@proton.me>
+
 use std::sync::LazyLock;
 use std::sync::Mutex;
 
