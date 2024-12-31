@@ -117,7 +117,14 @@ impl ElementImpl for ScapSrc {
     fn pad_templates() -> &'static [gst::PadTemplate] {
         static PAD_TEMPLATES: LazyLock<Vec<gst::PadTemplate>> = LazyLock::new(|| {
             let caps = gst_video::VideoCapsBuilder::new()
-                .format_list([gst_video::VideoFormat::Bgrx])
+                .format_list([
+                    gst_video::VideoFormat::Rgb,
+                    gst_video::VideoFormat::Rgbx,
+                    gst_video::VideoFormat::Xbgr,
+                    gst_video::VideoFormat::Bgrx,
+                    gst_video::VideoFormat::Bgrx,
+                    gst_video::VideoFormat::Bgra,
+                ])
                 .build();
             let src_pad_template = gst::PadTemplate::new(
                 "src",
@@ -211,24 +218,52 @@ impl BaseSrcImpl for ScapSrc {
     }
 }
 
-fn get_frame_resolution(frame: &scap::frame::Frame) -> (i32, i32) {
-    match frame {
-        scap::frame::Frame::YUVFrame(f) => (f.width, f.height),
-        scap::frame::Frame::RGB(f) => (f.width, f.height),
-        scap::frame::Frame::RGBx(f) => (f.width, f.height),
-        scap::frame::Frame::XBGR(f) => (f.width, f.height),
-        scap::frame::Frame::BGRx(f) => (f.width, f.height),
-        scap::frame::Frame::BGR0(f) => (f.width, f.height),
-        scap::frame::Frame::BGRA(f) => (f.width, f.height),
+struct FrameInfo {
+    width: u32,
+    height: u32,
+    gst_v_format: gst_video::VideoFormat,
+}
+
+impl FrameInfo {
+    pub fn new(frame: &scap::frame::Frame) -> Option<Self> {
+        Some(match frame {
+            scap::frame::Frame::RGB(f) => Self {
+                width: f.width as u32,
+                height: f.height as u32,
+                gst_v_format: gst_video::VideoFormat::Rgb,
+            },
+            scap::frame::Frame::RGBx(f) => Self {
+                width: f.width as u32,
+                height: f.height as u32,
+                gst_v_format: gst_video::VideoFormat::Rgbx,
+            },
+            scap::frame::Frame::XBGR(f) => Self {
+                width: f.width as u32,
+                height: f.height as u32,
+                gst_v_format: gst_video::VideoFormat::Xbgr,
+            },
+            scap::frame::Frame::BGRx(f) => Self {
+                width: f.width as u32,
+                height: f.height as u32,
+                gst_v_format: gst_video::VideoFormat::Bgrx,
+            },
+            scap::frame::Frame::BGR0(f) => Self {
+                width: f.width as u32,
+                height: f.height as u32,
+                gst_v_format: gst_video::VideoFormat::Bgrx,
+            },
+            scap::frame::Frame::BGRA(f) => Self {
+                width: f.width as u32,
+                height: f.height as u32,
+                gst_v_format: gst_video::VideoFormat::Bgra,
+            },
+            _ => return None,
+        })
     }
 }
 
 impl PushSrcImpl for ScapSrc {
-    // TODO: maybe use _buffer
-    fn create(
-        &self,
-        _buffer: Option<&mut gst::BufferRef>,
-    ) -> Result<CreateSuccess, gst::FlowError> {
+    fn create(&self, _: Option<&mut gst::BufferRef>) -> Result<CreateSuccess, gst::FlowError> {
         let Some(ref cap) = *self.capturer.lock().unwrap() else {
             return Err(gst::FlowError::NotNegotiated);
         };
@@ -238,10 +273,21 @@ impl PushSrcImpl for ScapSrc {
             gst::FlowError::Error
         })?;
 
-        let res = get_frame_resolution(&frame);
-
         let state = self.state.lock().unwrap();
-        if (state.width, state.height) != res {
+
+        let neg_format = match &state.info {
+            Some(i) => i.format(),
+            None => return Err(gst::FlowError::NotNegotiated),
+        };
+
+        let Some(frame_info) = FrameInfo::new(&frame) else {
+            gst::error!(CAT, imp = self, "Unsupported frame format received");
+            return Err(gst::FlowError::Error);
+        };
+
+        if (state.width, state.height) != (frame_info.width as i32, frame_info.height as i32)
+            || neg_format != frame_info.gst_v_format
+        {
             gst::debug!(
                 CAT,
                 imp = self,
@@ -249,9 +295,9 @@ impl PushSrcImpl for ScapSrc {
             );
 
             let new_video_info = gst_video::VideoInfo::builder(
-                gst_video::VideoFormat::Bgrx,
-                res.0 as u32,
-                res.1 as u32,
+                frame_info.gst_v_format,
+                frame_info.width,
+                frame_info.height,
             )
             .build()
             .map_err(|e| {
@@ -273,21 +319,25 @@ impl PushSrcImpl for ScapSrc {
         }
 
         match frame {
-            scap::frame::Frame::YUVFrame(_yuvframe) => todo!(),
-            scap::frame::Frame::RGB(_rgbframe) => todo!(),
-            scap::frame::Frame::RGBx(rgbx_frame) => {
-                return Ok(CreateSuccess::NewBuffer(gst::Buffer::from_slice(
-                    rgbx_frame.data,
-                )));
+            scap::frame::Frame::RGB(f) => {
+                Ok(CreateSuccess::NewBuffer(gst::Buffer::from_slice(f.data)))
             }
-            scap::frame::Frame::XBGR(_xbgrframe) => todo!(),
-            scap::frame::Frame::BGRx(bgrx_frame) => {
-                return Ok(CreateSuccess::NewBuffer(gst::Buffer::from_slice(
-                    bgrx_frame.data,
-                )));
+            scap::frame::Frame::RGBx(f) => {
+                Ok(CreateSuccess::NewBuffer(gst::Buffer::from_slice(f.data)))
             }
-            scap::frame::Frame::BGR0(_bgrframe) => todo!(),
-            scap::frame::Frame::BGRA(_bgraframe) => todo!(),
+            scap::frame::Frame::XBGR(f) => {
+                Ok(CreateSuccess::NewBuffer(gst::Buffer::from_slice(f.data)))
+            }
+            scap::frame::Frame::BGRx(f) => {
+                Ok(CreateSuccess::NewBuffer(gst::Buffer::from_slice(f.data)))
+            }
+            scap::frame::Frame::BGR0(f) => {
+                Ok(CreateSuccess::NewBuffer(gst::Buffer::from_slice(f.data)))
+            }
+            scap::frame::Frame::BGRA(f) => {
+                Ok(CreateSuccess::NewBuffer(gst::Buffer::from_slice(f.data)))
+            }
+            _ => unreachable!(), // Yuv format should already have returned an error
         }
     }
 }
