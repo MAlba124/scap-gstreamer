@@ -14,13 +14,6 @@
             clang
           ];
           buildInputs = with pkgs; [
-            libGL
-            libxkbcommon
-            wayland
-            xorg.libX11
-            xorg.libXcursor
-            xorg.libXi
-            xorg.libXrandr
             pipewire
             alsa-lib
             libclang
@@ -31,12 +24,13 @@
             gst_all_1.gst-plugins-bad
             gst_all_1.gst-plugins-ugly
             glib
+            openssl
           ];
         in
         with pkgs;
         {
           devShells.default = mkShell {
-            LD_LIBRARY_PATH = "${lib.makeLibraryPath buildInputs}:${builtins.foldl' (a: b: "${a}:${b}/lib") "${pkgs.vulkan-loader}/lib" buildInputs}";
+            LD_LIBRARY_PATH = "${lib.makeLibraryPath buildInputs}";
             BINDGEN_EXTRA_CLANG_ARGS = [
                 ''-I"${pkgs.llvmPackages.libclang.lib}/lib/clang/${pkgs.llvmPackages.libclang.version}/include"''
                 "-I ${pkgs.glibc.dev}/include"
