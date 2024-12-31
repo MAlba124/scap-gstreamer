@@ -17,6 +17,6 @@ scap = { git = "https://github.com/CapSoftware/scap", rev = "92cabc5b4628a238b62
 gst-plugin-version-helper = "0.8.2"
 
 [lib]
-name = "scapgstreamer"
-crate-type = ["cdylib"]
+name = "scapgst"
+crate-type = ["cdylib", "rlib"]
 path = "src/lib.rs"
