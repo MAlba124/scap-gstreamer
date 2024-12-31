@@ -123,9 +123,9 @@ impl ElementImpl for ScapSrc {
                 "src",
                 gst::PadDirection::Src,
                 gst::PadPresence::Always,
-                &caps
+                &caps,
             )
-                .unwrap();
+            .unwrap();
 
             vec![src_pad_template]
         });
@@ -133,7 +133,10 @@ impl ElementImpl for ScapSrc {
         PAD_TEMPLATES.as_ref()
     }
 
-    fn change_state(&self, transition: gst::StateChange) -> Result<gst::StateChangeSuccess, gst::StateChangeError> {
+    fn change_state(
+        &self,
+        transition: gst::StateChange,
+    ) -> Result<gst::StateChangeSuccess, gst::StateChangeError> {
         self.parent_change_state(transition)
     }
 }
@@ -208,40 +211,54 @@ impl BaseSrcImpl for ScapSrc {
 
 impl PushSrcImpl for ScapSrc {
     // TODO: maybe use _buffer
-    fn create(&self, _buffer: Option<&mut gst::BufferRef>) -> Result<CreateSuccess, gst::FlowError> {
+    fn create(
+        &self,
+        _buffer: Option<&mut gst::BufferRef>,
+    ) -> Result<CreateSuccess, gst::FlowError> {
         let Some(ref cap) = *self.capturer.lock().unwrap() else {
             todo!();
         };
 
         match cap.get_next_frame() {
-            Ok(frame) => {
-                match frame {
-                    scap::frame::Frame::YUVFrame(_yuvframe) => todo!(),
-                    scap::frame::Frame::RGB(_rgbframe) => todo!(),
-                    scap::frame::Frame::RGBx(rgbx_frame) => {
-                        let state = self.state.lock().unwrap();
-                        if (state.width, state.height) != (rgbx_frame.width, rgbx_frame.height) {
-                            gst::debug!(CAT, imp = self, "Resolutions differ. Will try to renegotiate");
+            Ok(frame) => match frame {
+                scap::frame::Frame::YUVFrame(_yuvframe) => todo!(),
+                scap::frame::Frame::RGB(_rgbframe) => todo!(),
+                scap::frame::Frame::RGBx(rgbx_frame) => {
+                    let state = self.state.lock().unwrap();
+                    if (state.width, state.height) != (rgbx_frame.width, rgbx_frame.height) {
+                        gst::debug!(
+                            CAT,
+                            imp = self,
+                            "Resolutions differ. Will try to renegotiate"
+                        );
 
-                            let new_caps = gst_video::VideoInfo::builder(
-                                gst_video::VideoFormat::Bgrx,
-                                rgbx_frame.width as u32,
-                                rgbx_frame.height as u32).build().unwrap().to_caps().unwrap();
+                        let new_caps = gst_video::VideoInfo::builder(
+                            gst_video::VideoFormat::Bgrx,
+                            rgbx_frame.width as u32,
+                            rgbx_frame.height as u32,
+                        )
+                        .build()
+                        .unwrap()
+                        .to_caps()
+                        .unwrap();
 
-                            drop(state);
+                        drop(state);
 
-                            self.obj().set_caps(&new_caps).unwrap();
-                        }
-                        return Ok(CreateSuccess::NewBuffer(gst::Buffer::from_slice(rgbx_frame.data)));
+                        self.obj().set_caps(&new_caps).unwrap();
                     }
-                    scap::frame::Frame::XBGR(_xbgrframe) => todo!(),
-                    scap::frame::Frame::BGRx(bgrx_frame) => {
-                        return Ok(CreateSuccess::NewBuffer(gst::Buffer::from_slice(bgrx_frame.data)));
-                    }
-                    scap::frame::Frame::BGR0(_bgrframe) => todo!(),
-                    scap::frame::Frame::BGRA(_bgraframe) => todo!(),
+                    return Ok(CreateSuccess::NewBuffer(gst::Buffer::from_slice(
+                        rgbx_frame.data,
+                    )));
                 }
-            }
+                scap::frame::Frame::XBGR(_xbgrframe) => todo!(),
+                scap::frame::Frame::BGRx(bgrx_frame) => {
+                    return Ok(CreateSuccess::NewBuffer(gst::Buffer::from_slice(
+                        bgrx_frame.data,
+                    )));
+                }
+                scap::frame::Frame::BGR0(_bgrframe) => todo!(),
+                scap::frame::Frame::BGRA(_bgraframe) => todo!(),
+            },
             Err(_e) => todo!(), // Error
         }
     }
