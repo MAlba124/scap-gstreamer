@@ -211,6 +211,18 @@ impl BaseSrcImpl for ScapSrc {
     }
 }
 
+fn get_frame_resolution(frame: &scap::frame::Frame) -> (i32, i32) {
+    match frame {
+        scap::frame::Frame::YUVFrame(f) => (f.width, f.height),
+        scap::frame::Frame::RGB(f) => (f.width, f.height),
+        scap::frame::Frame::RGBx(f) => (f.width, f.height),
+        scap::frame::Frame::XBGR(f) => (f.width, f.height),
+        scap::frame::Frame::BGRx(f) => (f.width, f.height),
+        scap::frame::Frame::BGR0(f) => (f.width, f.height),
+        scap::frame::Frame::BGRA(f) => (f.width, f.height),
+    }
+}
+
 impl PushSrcImpl for ScapSrc {
     // TODO: maybe use _buffer
     fn create(
@@ -226,41 +238,44 @@ impl PushSrcImpl for ScapSrc {
             gst::FlowError::Error
         })?;
 
+        let res = get_frame_resolution(&frame);
+
+        let state = self.state.lock().unwrap();
+        if (state.width, state.height) != res {
+            gst::debug!(
+                CAT,
+                imp = self,
+                "Resolutions differ. Will try to renegotiate"
+            );
+
+            let new_video_info = gst_video::VideoInfo::builder(
+                gst_video::VideoFormat::Bgrx,
+                res.0 as u32,
+                res.1 as u32,
+            )
+            .build()
+            .map_err(|e| {
+                gst::error!(CAT, imp = self, "Failed to create vidoe info: {e}");
+                gst::FlowError::Error
+            })?;
+
+            let new_caps = new_video_info.to_caps().map_err(|e| {
+                gst::error!(CAT, imp = self, "Failed to create caps: {e}");
+                gst::FlowError::Error
+            })?;
+
+            drop(state);
+
+            if let Err(e) = self.obj().set_caps(&new_caps) {
+                gst::error!(CAT, imp = self, "Failed to set caps: {e}");
+                return Err(gst::FlowError::Error);
+            }
+        }
+
         match frame {
             scap::frame::Frame::YUVFrame(_yuvframe) => todo!(),
             scap::frame::Frame::RGB(_rgbframe) => todo!(),
             scap::frame::Frame::RGBx(rgbx_frame) => {
-                let state = self.state.lock().unwrap();
-                if (state.width, state.height) != (rgbx_frame.width, rgbx_frame.height) {
-                    gst::debug!(
-                        CAT,
-                        imp = self,
-                        "Resolutions differ. Will try to renegotiate"
-                    );
-
-                    let new_video_info = gst_video::VideoInfo::builder(
-                        gst_video::VideoFormat::Bgrx,
-                        rgbx_frame.width as u32,
-                        rgbx_frame.height as u32,
-                    )
-                    .build()
-                    .map_err(|e| {
-                        gst::error!(CAT, imp = self, "Failed to create vidoe info: {e}");
-                        gst::FlowError::Error
-                    })?;
-
-                    let new_caps = new_video_info.to_caps().map_err(|e| {
-                        gst::error!(CAT, imp = self, "Failed to create caps: {e}");
-                        gst::FlowError::Error
-                    })?;
-
-                    drop(state);
-
-                    if let Err(e) = self.obj().set_caps(&new_caps) {
-                        gst::error!(CAT, imp = self, "Failed to set caps: {e}");
-                        return Err(gst::FlowError::Error);
-                    }
-                }
                 return Ok(CreateSuccess::NewBuffer(gst::Buffer::from_slice(
                     rgbx_frame.data,
                 )));
