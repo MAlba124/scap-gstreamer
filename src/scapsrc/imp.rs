@@ -150,7 +150,7 @@ impl BaseSrcImpl for ScapSrc {
             capturer.stop_capture();
         }
 
-        let mut new_capturer = match Capturer::build(scap::capturer::Options {
+        let mut new_capturer = Capturer::build(scap::capturer::Options {
             fps: 25,
             show_cursor: settings.show_cursor,
             show_highlight: true,
@@ -159,10 +159,8 @@ impl BaseSrcImpl for ScapSrc {
             output_type: scap::frame::FrameType::BGR0,
             output_resolution: scap::capturer::Resolution::Captured,
             excluded_targets: None,
-        }) {
-            Ok(c) => c,
-            Err(_e) => todo!(), // return Err(gst::ErrorMessage::new())
-        };
+        })
+        .map_err(|e| gst::error_msg!(gst::LibraryError::Init, ["{e}"]))?;
 
         new_capturer.start_capture();
 
@@ -174,7 +172,11 @@ impl BaseSrcImpl for ScapSrc {
     fn stop(&self) -> Result<(), gst::ErrorMessage> {
         match self.capturer.lock().unwrap().take() {
             Some(mut c) => c.stop_capture(),
-            None => todo!(), // Error
+            None => {
+                return Err(gst::error_msg!(gst::LibraryError::Shutdown, [
+                    "Missing capturer"
+                ]));
+            }
         }
 
         Ok(())
@@ -216,50 +218,61 @@ impl PushSrcImpl for ScapSrc {
         _buffer: Option<&mut gst::BufferRef>,
     ) -> Result<CreateSuccess, gst::FlowError> {
         let Some(ref cap) = *self.capturer.lock().unwrap() else {
-            todo!();
+            return Err(gst::FlowError::NotNegotiated);
         };
 
-        match cap.get_next_frame() {
-            Ok(frame) => match frame {
-                scap::frame::Frame::YUVFrame(_yuvframe) => todo!(),
-                scap::frame::Frame::RGB(_rgbframe) => todo!(),
-                scap::frame::Frame::RGBx(rgbx_frame) => {
-                    let state = self.state.lock().unwrap();
-                    if (state.width, state.height) != (rgbx_frame.width, rgbx_frame.height) {
-                        gst::debug!(
-                            CAT,
-                            imp = self,
-                            "Resolutions differ. Will try to renegotiate"
-                        );
+        let frame = cap.get_next_frame().map_err(|e| {
+            gst::error!(CAT, imp = self, "Failed to get next frame: {e}");
+            gst::FlowError::Error
+        })?;
 
-                        let new_caps = gst_video::VideoInfo::builder(
-                            gst_video::VideoFormat::Bgrx,
-                            rgbx_frame.width as u32,
-                            rgbx_frame.height as u32,
-                        )
-                        .build()
-                        .unwrap()
-                        .to_caps()
-                        .unwrap();
+        match frame {
+            scap::frame::Frame::YUVFrame(_yuvframe) => todo!(),
+            scap::frame::Frame::RGB(_rgbframe) => todo!(),
+            scap::frame::Frame::RGBx(rgbx_frame) => {
+                let state = self.state.lock().unwrap();
+                if (state.width, state.height) != (rgbx_frame.width, rgbx_frame.height) {
+                    gst::debug!(
+                        CAT,
+                        imp = self,
+                        "Resolutions differ. Will try to renegotiate"
+                    );
 
-                        drop(state);
+                    let new_video_info = gst_video::VideoInfo::builder(
+                        gst_video::VideoFormat::Bgrx,
+                        rgbx_frame.width as u32,
+                        rgbx_frame.height as u32,
+                    )
+                    .build()
+                    .map_err(|e| {
+                        gst::error!(CAT, imp = self, "Failed to create vidoe info: {e}");
+                        gst::FlowError::Error
+                    })?;
 
-                        self.obj().set_caps(&new_caps).unwrap();
+                    let new_caps = new_video_info.to_caps().map_err(|e| {
+                        gst::error!(CAT, imp = self, "Failed to create caps: {e}");
+                        gst::FlowError::Error
+                    })?;
+
+                    drop(state);
+
+                    if let Err(e) = self.obj().set_caps(&new_caps) {
+                        gst::error!(CAT, imp = self, "Failed to set caps: {e}");
+                        return Err(gst::FlowError::Error);
                     }
-                    return Ok(CreateSuccess::NewBuffer(gst::Buffer::from_slice(
-                        rgbx_frame.data,
-                    )));
                 }
-                scap::frame::Frame::XBGR(_xbgrframe) => todo!(),
-                scap::frame::Frame::BGRx(bgrx_frame) => {
-                    return Ok(CreateSuccess::NewBuffer(gst::Buffer::from_slice(
-                        bgrx_frame.data,
-                    )));
-                }
-                scap::frame::Frame::BGR0(_bgrframe) => todo!(),
-                scap::frame::Frame::BGRA(_bgraframe) => todo!(),
-            },
-            Err(_e) => todo!(), // Error
+                return Ok(CreateSuccess::NewBuffer(gst::Buffer::from_slice(
+                    rgbx_frame.data,
+                )));
+            }
+            scap::frame::Frame::XBGR(_xbgrframe) => todo!(),
+            scap::frame::Frame::BGRx(bgrx_frame) => {
+                return Ok(CreateSuccess::NewBuffer(gst::Buffer::from_slice(
+                    bgrx_frame.data,
+                )));
+            }
+            scap::frame::Frame::BGR0(_bgrframe) => todo!(),
+            scap::frame::Frame::BGRA(_bgraframe) => todo!(),
         }
     }
 }
