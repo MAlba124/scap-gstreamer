@@ -1,6 +1,6 @@
 # Scap GStreamer
 
-This is a [GStreamer](https://gstreamer.freedesktop.org/) plugin for [scap](https://github.com/CapSoftware/scap). It provides a scapsrc element, which is a video source that captures screencasts.
+This is a [GStreamer](https://gstreamer.freedesktop.org/) plugin for [scap](https://github.com/CapSoftware/scap). It provides a `scapsrc` element, which is a video source that captures screencasts.
 
 ## Building the plugin
 
