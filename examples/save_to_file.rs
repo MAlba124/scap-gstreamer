@@ -6,7 +6,7 @@ fn main() {
     scapgst::plugin_register_static().unwrap();
 
     let pipeline = gst::parse::launch(
-        "scapsrc show-cursor=true do-timestamp=true ! videoconvert ! x264enc ! matroskamux ! filesink location=screencast.mkv",
+        "scapsrc do-timestamp=true ! videoconvert ! x264enc ! matroskamux ! filesink location=screencast.mkv",
     )
     .unwrap();
 

@@ -11,6 +11,7 @@ use gst_base::subclass::base_src::CreateSuccess;
 use gst_base::subclass::prelude::*;
 use scap::capturer::Capturer;
 
+const DEFAULT_FPS: u32 = 25;
 const DEFAULT_SHOW_CURSOR: bool = true;
 
 static CAT: LazyLock<gst::DebugCategory> = LazyLock::new(|| {
@@ -21,9 +22,18 @@ static CAT: LazyLock<gst::DebugCategory> = LazyLock::new(|| {
     )
 });
 
-#[derive(Default)]
 struct Settings {
     pub show_cursor: bool,
+    pub fps: u32,
+}
+
+impl Default for Settings {
+    fn default() -> Self {
+        Self {
+            show_cursor: DEFAULT_SHOW_CURSOR,
+            fps: DEFAULT_FPS,
+        }
+    }
 }
 
 #[derive(Default)]
@@ -62,6 +72,13 @@ impl ObjectImpl for ScapSrc {
     fn properties() -> &'static [glib::ParamSpec] {
         static PROPERTIES: LazyLock<Vec<glib::ParamSpec>> = LazyLock::new(|| {
             vec![
+                glib::ParamSpecUInt::builder("fps")
+                    .nick("Frames per second")
+                    .blurb("Rate to capture screen at")
+                    .minimum(1)
+                    .default_value(DEFAULT_FPS)
+                    .mutable_ready()
+                    .build(),
                 glib::ParamSpecBoolean::builder("show-cursor")
                     .nick("Show cursor")
                     .blurb("Wheter to capture the cursor or not")
@@ -71,7 +88,7 @@ impl ObjectImpl for ScapSrc {
             ]
         });
 
-        PROPERTIES.as_ref()
+        &PROPERTIES
     }
 
     fn constructed(&self) {
@@ -84,6 +101,19 @@ impl ObjectImpl for ScapSrc {
 
     fn set_property(&self, _id: usize, value: &glib::Value, pspec: &glib::ParamSpec) {
         match pspec.name() {
+            "fps" => {
+                let mut settings = self.settings.lock().unwrap();
+                let new_fps = value.get().expect("type checked upstream");
+
+                gst::debug!(
+                    CAT,
+                    imp = self,
+                    "fps was changed from `{}` to `{}`",
+                    settings.fps, new_fps
+                );
+
+                settings.fps = new_fps;
+            }
             "show-cursor" => {
                 let mut settings = self.settings.lock().unwrap();
                 let new_show_cursor = value.get().expect("type checked upstream");
@@ -104,6 +134,10 @@ impl ObjectImpl for ScapSrc {
 
     fn property(&self, _id: usize, pspec: &glib::ParamSpec) -> glib::Value {
         match pspec.name() {
+            "fps" => {
+                let settings = self.settings.lock().unwrap();
+                settings.fps.to_value()
+            }
             "show-cursor" => {
                 let settings = self.settings.lock().unwrap();
                 settings.show_cursor.to_value()
@@ -152,7 +186,7 @@ impl ElementImpl for ScapSrc {
             vec![src_pad_template]
         });
 
-        PAD_TEMPLATES.as_ref()
+        &PAD_TEMPLATES
     }
 
     fn change_state(
@@ -173,7 +207,7 @@ impl BaseSrcImpl for ScapSrc {
         }
 
         let mut new_capturer = Capturer::build(scap::capturer::Options {
-            fps: 25,
+            fps: settings.fps,
             show_cursor: settings.show_cursor,
             show_highlight: true,
             target: None,
