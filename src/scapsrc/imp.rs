@@ -105,7 +105,7 @@ impl ObjectImpl for ScapSrc {
                 let mut settings = self.settings.lock().unwrap();
                 let new_fps = value.get().expect("type checked upstream");
 
-                gst::debug!(
+                gst::info!(
                     CAT,
                     imp = self,
                     "fps was changed from `{}` to `{}`",
@@ -118,7 +118,7 @@ impl ObjectImpl for ScapSrc {
                 let mut settings = self.settings.lock().unwrap();
                 let new_show_cursor = value.get().expect("type checked upstream");
 
-                gst::debug!(
+                gst::info!(
                     CAT,
                     imp = self,
                     "show-cursor was changed from `{}` to `{}`",
