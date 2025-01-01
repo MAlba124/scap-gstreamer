@@ -76,6 +76,10 @@ impl ObjectImpl for ScapSrc {
 
     fn constructed(&self) {
         self.parent_constructed();
+
+        let obj = self.obj();
+        obj.set_live(true);
+        obj.set_format(gst::Format::Time);
     }
 
     fn set_property(&self, _id: usize, value: &glib::Value, pspec: &glib::ParamSpec) {
@@ -220,10 +224,12 @@ impl BaseSrcImpl for ScapSrc {
     }
 }
 
+#[allow(dead_code)]
 struct FrameInfo {
     width: u32,
     height: u32,
     gst_v_format: gst_video::VideoFormat,
+    pts: u64,
 }
 
 impl FrameInfo {
@@ -233,31 +239,37 @@ impl FrameInfo {
                 width: f.width as u32,
                 height: f.height as u32,
                 gst_v_format: gst_video::VideoFormat::Rgb,
+                pts: f.display_time,
             },
             scap::frame::Frame::RGBx(f) => Self {
                 width: f.width as u32,
                 height: f.height as u32,
                 gst_v_format: gst_video::VideoFormat::Rgbx,
+                pts: f.display_time,
             },
             scap::frame::Frame::XBGR(f) => Self {
                 width: f.width as u32,
                 height: f.height as u32,
                 gst_v_format: gst_video::VideoFormat::Xbgr,
+                pts: f.display_time,
             },
             scap::frame::Frame::BGRx(f) => Self {
                 width: f.width as u32,
                 height: f.height as u32,
                 gst_v_format: gst_video::VideoFormat::Bgrx,
+                pts: f.display_time,
             },
             scap::frame::Frame::BGR0(f) => Self {
                 width: f.width as u32,
                 height: f.height as u32,
                 gst_v_format: gst_video::VideoFormat::Bgrx,
+                pts: f.display_time,
             },
             scap::frame::Frame::BGRA(f) => Self {
                 width: f.width as u32,
                 height: f.height as u32,
                 gst_v_format: gst_video::VideoFormat::Bgra,
+                pts: f.display_time,
             },
             _ => return None,
         })
@@ -275,71 +287,63 @@ impl PushSrcImpl for ScapSrc {
             gst::FlowError::Error
         })?;
 
-        let state = self.state.lock().unwrap();
-
-        let neg_format = match &state.info {
-            Some(i) => i.format(),
-            None => return Err(gst::FlowError::NotNegotiated),
-        };
-
         let Some(frame_info) = FrameInfo::new(&frame) else {
             gst::error!(CAT, imp = self, "Unsupported frame format received");
             return Err(gst::FlowError::Error);
         };
 
-        if (state.width, state.height) != (frame_info.width as i32, frame_info.height as i32)
-            || neg_format != frame_info.gst_v_format
         {
-            gst::debug!(
-                CAT,
-                imp = self,
-                "Resolutions differ. Will try to renegotiate"
-            );
+            let state = self.state.lock().unwrap();
 
-            let new_video_info = gst_video::VideoInfo::builder(
-                frame_info.gst_v_format,
-                frame_info.width,
-                frame_info.height,
-            )
-            .build()
-            .map_err(|e| {
-                gst::error!(CAT, imp = self, "Failed to create vidoe info: {e}");
-                gst::FlowError::Error
-            })?;
+            let neg_format = match &state.info {
+                Some(i) => i.format(),
+                None => return Err(gst::FlowError::NotNegotiated),
+            };
 
-            let new_caps = new_video_info.to_caps().map_err(|e| {
-                gst::error!(CAT, imp = self, "Failed to create caps: {e}");
-                gst::FlowError::Error
-            })?;
+            if (state.width, state.height) != (frame_info.width as i32, frame_info.height as i32)
+                || neg_format != frame_info.gst_v_format
+            {
+                gst::debug!(
+                    CAT,
+                    imp = self,
+                    "Resolutions differ. Will try to renegotiate"
+                );
 
-            drop(state);
+                let new_video_info = gst_video::VideoInfo::builder(
+                    frame_info.gst_v_format,
+                    frame_info.width,
+                    frame_info.height,
+                )
+                .build()
+                .map_err(|e| {
+                    gst::error!(CAT, imp = self, "Failed to create vidoe info: {e}");
+                    gst::FlowError::Error
+                })?;
 
-            if let Err(e) = self.obj().set_caps(&new_caps) {
-                gst::error!(CAT, imp = self, "Failed to set caps: {e}");
-                return Err(gst::FlowError::Error);
+                let new_caps = new_video_info.to_caps().map_err(|e| {
+                    gst::error!(CAT, imp = self, "Failed to create caps: {e}");
+                    gst::FlowError::Error
+                })?;
+
+                drop(state);
+
+                if let Err(e) = self.obj().set_caps(&new_caps) {
+                    gst::error!(CAT, imp = self, "Failed to set caps: {e}");
+                    return Err(gst::FlowError::Error);
+                }
             }
         }
 
-        match frame {
-            scap::frame::Frame::RGB(f) => {
-                Ok(CreateSuccess::NewBuffer(gst::Buffer::from_slice(f.data)))
-            }
-            scap::frame::Frame::RGBx(f) => {
-                Ok(CreateSuccess::NewBuffer(gst::Buffer::from_slice(f.data)))
-            }
-            scap::frame::Frame::XBGR(f) => {
-                Ok(CreateSuccess::NewBuffer(gst::Buffer::from_slice(f.data)))
-            }
-            scap::frame::Frame::BGRx(f) => {
-                Ok(CreateSuccess::NewBuffer(gst::Buffer::from_slice(f.data)))
-            }
-            scap::frame::Frame::BGR0(f) => {
-                Ok(CreateSuccess::NewBuffer(gst::Buffer::from_slice(f.data)))
-            }
-            scap::frame::Frame::BGRA(f) => {
-                Ok(CreateSuccess::NewBuffer(gst::Buffer::from_slice(f.data)))
-            }
+        let buffer = match frame {
+            scap::frame::Frame::RGB(f) => gst::Buffer::from_slice(f.data),
+            scap::frame::Frame::RGBx(f) => gst::Buffer::from_slice(f.data),
+            scap::frame::Frame::XBGR(f) => gst::Buffer::from_slice(f.data),
+            scap::frame::Frame::BGRx(f) => gst::Buffer::from_slice(f.data),
+            scap::frame::Frame::BGR0(f) => gst::Buffer::from_slice(f.data),
+            scap::frame::Frame::BGRA(f) => gst::Buffer::from_slice(f.data),
             _ => unreachable!(), // Yuv format should already have returned an error
-        }
+        };
+
+        Ok(CreateSuccess::NewBuffer(buffer))
     }
 }

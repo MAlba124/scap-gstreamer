@@ -1283,6 +1283,7 @@ dependencies = [
 name = "scap-gstreamer"
 version = "0.1.0"
 dependencies = [
+ "ctrlc",
  "gst-plugin-version-helper",
  "gstreamer",
  "gstreamer-base",
