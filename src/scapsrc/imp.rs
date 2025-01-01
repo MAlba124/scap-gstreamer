@@ -86,8 +86,17 @@ impl ObjectImpl for ScapSrc {
         match pspec.name() {
             "show-cursor" => {
                 let mut settings = self.settings.lock().unwrap();
-                // TODO: Log
-                settings.show_cursor = value.get().expect("type checked upstream");
+                let new_show_cursor = value.get().expect("type checked upstream");
+
+                gst::debug!(
+                    CAT,
+                    imp = self,
+                    "show-cursor was changed from `{}` to `{}`",
+                    settings.show_cursor,
+                    new_show_cursor
+                );
+
+                settings.show_cursor = new_show_cursor;
             }
             _ => unimplemented!(),
         }
