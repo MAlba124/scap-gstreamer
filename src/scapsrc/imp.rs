@@ -223,14 +223,6 @@ impl BaseSrcImpl for ScapSrc {
 
         Ok(())
     }
-
-    fn fixate(&self, /*mut*/ caps: gst::Caps) -> gst::Caps {
-        self.parent_fixate(caps)
-    }
-
-    fn is_seekable(&self) -> bool {
-        false
-    }
 }
 
 #[allow(dead_code)]
