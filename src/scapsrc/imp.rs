@@ -226,9 +226,8 @@ impl BaseSrcImpl for ScapSrc {
             capturer.stop_capture();
         }
 
-        let targets = scap::get_all_targets();
-
         // TODO: Use settings.sel_target_cb to select the target
+        // let targets = scap::get_all_targets();
         // if targets.is_empty() {
         //     return Err(gst::error_msg!(gst::LibraryError::Init, [
         //         "No targets available"
