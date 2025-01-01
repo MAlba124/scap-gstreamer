@@ -25,6 +25,7 @@ static CAT: LazyLock<gst::DebugCategory> = LazyLock::new(|| {
 struct Settings {
     pub show_cursor: bool,
     pub fps: u32,
+    pub sel_target_cb: Option<glib::Closure>,
 }
 
 impl Default for Settings {
@@ -32,6 +33,7 @@ impl Default for Settings {
         Self {
             show_cursor: DEFAULT_SHOW_CURSOR,
             fps: DEFAULT_FPS,
+            sel_target_cb: None,
         }
     }
 }
@@ -85,6 +87,11 @@ impl ObjectImpl for ScapSrc {
                     .default_value(DEFAULT_SHOW_CURSOR)
                     .mutable_ready()
                     .build(),
+                glib::ParamSpecBoxed::builder::<Option<glib::Closure>>("select-target-cb")
+                    .nick("Select target callback")
+                    .blurb("Function that accpets a list of targets and returns the target that should be captured")
+                    .mutable_ready()
+                    .build(),
             ]
         });
 
@@ -109,7 +116,8 @@ impl ObjectImpl for ScapSrc {
                     CAT,
                     imp = self,
                     "fps was changed from `{}` to `{}`",
-                    settings.fps, new_fps
+                    settings.fps,
+                    new_fps
                 );
 
                 settings.fps = new_fps;
@@ -128,6 +136,14 @@ impl ObjectImpl for ScapSrc {
 
                 settings.show_cursor = new_show_cursor;
             }
+            "select-target-cb" => {
+                let mut settings = self.settings.lock().unwrap();
+                let new_cb = value.get().expect("type checked upstream");
+
+                gst::info!(CAT, imp = self, "Changing select-target-cb");
+
+                settings.sel_target_cb = new_cb;
+            }
             _ => unimplemented!(),
         }
     }
@@ -141,6 +157,10 @@ impl ObjectImpl for ScapSrc {
             "show-cursor" => {
                 let settings = self.settings.lock().unwrap();
                 settings.show_cursor.to_value()
+            }
+            "select-target-cb" => {
+                let settings = self.settings.lock().unwrap();
+                settings.sel_target_cb.to_value()
             }
             _ => unimplemented!(),
         }
@@ -205,6 +225,15 @@ impl BaseSrcImpl for ScapSrc {
         if let Some(mut capturer) = capturer.take() {
             capturer.stop_capture();
         }
+
+        let targets = scap::get_all_targets();
+
+        // TODO: Use settings.sel_target_cb to select the target
+        // if targets.is_empty() {
+        //     return Err(gst::error_msg!(gst::LibraryError::Init, [
+        //         "No targets available"
+        //     ]));
+        // }
 
         let mut new_capturer = Capturer::build(scap::capturer::Options {
             fps: settings.fps,
@@ -378,6 +407,9 @@ impl PushSrcImpl for ScapSrc {
             scap::frame::Frame::BGRA(f) => gst::Buffer::from_slice(f.data),
             _ => unreachable!(), // Yuv format should already have returned an error
         };
+
+        // TODO: Investigate how to make the encoder happy, now it's not working correctly
+        //       as video is cut off too early.
 
         Ok(CreateSuccess::NewBuffer(buffer))
     }
