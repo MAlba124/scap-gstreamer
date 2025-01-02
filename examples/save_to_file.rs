@@ -6,14 +6,14 @@ fn main() {
     scapgst::plugin_register_static().unwrap();
 
     let pipeline = gst::parse::launch(
-        "scapsrc do-timestamp=true ! videoconvert ! x264enc ! matroskamux ! filesink location=screencast.mkv",
+        "scapsrc ! videoconvert ! x264enc ! matroskamux ! filesink location=screencast.mkv",
     )
     .unwrap();
 
     let pipeline_clone = pipeline.clone();
     ctrlc::set_handler(move || {
-        pipeline_clone.set_state(gst::State::Null).unwrap();
-        std::process::exit(0);
+        // Send eos so that the encoder flushes
+        pipeline_clone.send_event(gst::event::Eos::new());
     })
     .unwrap();
 
@@ -23,7 +23,10 @@ fn main() {
 
     for msg in bus.iter_timed(gst::ClockTime::NONE) {
         match msg.view() {
-            MessageView::Eos(_) => break,
+            MessageView::Eos(_) => {
+                println!("EOS");
+                break;
+            }
             MessageView::Error(e) => {
                 eprintln!(
                     "Error {:?} {} {:?}",

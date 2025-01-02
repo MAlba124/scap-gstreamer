@@ -43,6 +43,7 @@ struct State {
     info: Option<gst_video::VideoInfo>,
     width: i32,
     height: i32,
+    base_time: u64,
 }
 
 pub struct ScapSrc {
@@ -422,7 +423,7 @@ impl PushSrcImpl for ScapSrc {
             }
         }
 
-        let buffer = match frame {
+        let mut buffer = match frame {
             scap::frame::Frame::RGB(f) => gst::Buffer::from_slice(f.data),
             scap::frame::Frame::RGBx(f) => gst::Buffer::from_slice(f.data),
             scap::frame::Frame::XBGR(f) => gst::Buffer::from_slice(f.data),
@@ -432,8 +433,15 @@ impl PushSrcImpl for ScapSrc {
             _ => unreachable!(), // Yuv format should already have returned an error
         };
 
-        // TODO: Investigate how to make the encoder happy, now it's not working correctly
-        //       as video is cut off too early.
+        let mut state = self.state.lock().unwrap();
+        if state.base_time == u64::default() {
+            state.base_time = frame_info.pts;
+        }
+
+        let pts = frame_info.pts - state.base_time;
+
+        let buf = buffer.get_mut().unwrap();
+        buf.set_pts(gst::ClockTime::from_nseconds(pts));
 
         Ok(CreateSuccess::NewBuffer(buffer))
     }
