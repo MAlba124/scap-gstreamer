@@ -1,4 +1,4 @@
-// Copyright (C) 2024 Marcus L. Hanestad <marlhan@proton.me>
+// Copyright (C) 2024-2025 Marcus L. Hanestad <marlhan@proton.me>
 
 use gst::glib;
 use gst::prelude::*;
