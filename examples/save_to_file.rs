@@ -1,5 +1,5 @@
-use gst::MessageView;
 use gst::prelude::*;
+use gst::MessageView;
 
 fn main() {
     gst::init().unwrap();

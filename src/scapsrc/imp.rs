@@ -283,9 +283,10 @@ impl BaseSrcImpl for ScapSrc {
         match self.capturer.lock().unwrap().take() {
             Some(mut c) => c.stop_capture(),
             None => {
-                return Err(gst::error_msg!(gst::LibraryError::Shutdown, [
-                    "Missing capturer"
-                ]));
+                return Err(gst::error_msg!(
+                    gst::LibraryError::Shutdown,
+                    ["Missing capturer"]
+                ));
             }
         }
 
@@ -313,7 +314,6 @@ impl BaseSrcImpl for ScapSrc {
     }
 }
 
-#[allow(dead_code)]
 struct FrameInfo {
     width: u32,
     height: u32,
@@ -381,6 +381,7 @@ impl PushSrcImpl for ScapSrc {
             return Err(gst::FlowError::Error);
         };
 
+        // New scope to prevent deadlock later
         {
             let state = self.state.lock().unwrap();
 

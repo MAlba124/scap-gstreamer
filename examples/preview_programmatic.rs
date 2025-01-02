@@ -1,8 +1,8 @@
 // This example shows how to build the same pipeline used in `preview` but
 // by manually creating and linking elements.
 
-use gst::MessageView;
 use gst::prelude::*;
+use gst::MessageView;
 
 fn main() {
     gst::init().unwrap();
@@ -18,7 +18,9 @@ fn main() {
     let videoconvert = gst::ElementFactory::make("videoconvert").build().unwrap();
     let autovideosink = gst::ElementFactory::make("autovideosink").build().unwrap();
 
-    pipeline.add_many([&scapsrc, &videoconvert, &autovideosink]).unwrap();
+    pipeline
+        .add_many([&scapsrc, &videoconvert, &autovideosink])
+        .unwrap();
     gst::Element::link_many([&scapsrc, &videoconvert, &autovideosink]).unwrap();
 
     let bus = pipeline.bus().unwrap();
