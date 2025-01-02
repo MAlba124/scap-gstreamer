@@ -213,7 +213,34 @@ impl ElementImpl for ScapSrc {
         &self,
         transition: gst::StateChange,
     ) -> Result<gst::StateChangeSuccess, gst::StateChangeError> {
-        self.parent_change_state(transition)
+        let mut res = self.parent_change_state(transition)?;
+
+        match transition {
+            gst::StateChange::NullToReady => {}
+            gst::StateChange::ReadyToPaused => res = gst::StateChangeSuccess::NoPreroll,
+            gst::StateChange::PausedToPlaying => {
+                let mut capturer = self.capturer.lock().unwrap();
+                match &mut *capturer {
+                    Some(c) => c.start_capture(),
+                    None => {
+                        gst::error!(CAT, imp = self, "Capturer is missing");
+                        return Err(gst::StateChangeError);
+                    }
+                }
+                gst::info!(CAT, imp = self, "Capturing engine was started");
+            }
+            gst::StateChange::PlayingToPaused => {}
+            gst::StateChange::PausedToReady => {}
+            gst::StateChange::ReadyToNull => {}
+            gst::StateChange::NullToNull => {}
+            gst::StateChange::ReadyToReady => {}
+            gst::StateChange::PausedToPaused => {}
+            gst::StateChange::PlayingToPlaying => {}
+        }
+
+        gst::debug!(CAT, imp = self, "State transition: {transition:?}");
+
+        Ok(res)
     }
 }
 
@@ -234,7 +261,7 @@ impl BaseSrcImpl for ScapSrc {
         //     ]));
         // }
 
-        let mut new_capturer = Capturer::build(scap::capturer::Options {
+        let new_capturer = Capturer::build(scap::capturer::Options {
             fps: settings.fps,
             show_cursor: settings.show_cursor,
             show_highlight: true,
@@ -245,8 +272,6 @@ impl BaseSrcImpl for ScapSrc {
             excluded_targets: None,
         })
         .map_err(|e| gst::error_msg!(gst::LibraryError::Init, ["{e}"]))?;
-
-        new_capturer.start_capture();
 
         *capturer = Some(new_capturer);
 
