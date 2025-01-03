@@ -214,6 +214,8 @@ impl ElementImpl for ScapSrc {
         &self,
         transition: gst::StateChange,
     ) -> Result<gst::StateChangeSuccess, gst::StateChangeError> {
+        gst::debug!(CAT, imp = self, "State transition: {transition:?}");
+
         let mut res = self.parent_change_state(transition)?;
 
         match transition {
@@ -238,8 +240,6 @@ impl ElementImpl for ScapSrc {
             gst::StateChange::PausedToPaused => {}
             gst::StateChange::PlayingToPlaying => {}
         }
-
-        gst::debug!(CAT, imp = self, "State transition: {transition:?}");
 
         Ok(res)
     }
