@@ -2,8 +2,6 @@
 
 use gst::glib;
 
-pub use scap;
-
 mod scapsrc;
 
 fn plugin_init(plugin: &gst::Plugin) -> Result<(), glib::BoolError> {

@@ -25,7 +25,7 @@ static CAT: LazyLock<gst::DebugCategory> = LazyLock::new(|| {
 struct Settings {
     pub show_cursor: bool,
     pub fps: u32,
-    pub sel_target_cb: Option<glib::Closure>,
+    // pub sel_target_cb: Option<glib::Closure>,
 }
 
 impl Default for Settings {
@@ -33,7 +33,7 @@ impl Default for Settings {
         Self {
             show_cursor: DEFAULT_SHOW_CURSOR,
             fps: DEFAULT_FPS,
-            sel_target_cb: None,
+            // sel_target_cb: None,
         }
     }
 }
@@ -88,11 +88,11 @@ impl ObjectImpl for ScapSrc {
                     .default_value(DEFAULT_SHOW_CURSOR)
                     .mutable_ready()
                     .build(),
-                glib::ParamSpecBoxed::builder::<Option<glib::Closure>>("select-target-cb")
-                    .nick("Select target callback")
-                    .blurb("Function that accpets a list of targets and returns the target that should be captured")
-                    .mutable_ready()
-                    .build(),
+                // glib::ParamSpecBoxed::builder::<Option<glib::Closure>>("select-target-cb")
+                //     .nick("Select target callback")
+                //     .blurb("Function that accpets a list of targets and returns the target that should be captured")
+                //     .mutable_ready()
+                //     .build(),
             ]
         });
 
@@ -137,14 +137,14 @@ impl ObjectImpl for ScapSrc {
 
                 settings.show_cursor = new_show_cursor;
             }
-            "select-target-cb" => {
-                let mut settings = self.settings.lock().unwrap();
-                let new_cb = value.get().expect("type checked upstream");
+            // "select-target-cb" => {
+            //     let mut settings = self.settings.lock().unwrap();
+            //     let new_cb = value.get().expect("type checked upstream");
 
-                gst::info!(CAT, imp = self, "Changing select-target-cb");
+            //     gst::info!(CAT, imp = self, "Changing select-target-cb");
 
-                settings.sel_target_cb = new_cb;
-            }
+            //     settings.sel_target_cb = new_cb;
+            // }
             _ => unimplemented!(),
         }
     }
@@ -159,10 +159,10 @@ impl ObjectImpl for ScapSrc {
                 let settings = self.settings.lock().unwrap();
                 settings.show_cursor.to_value()
             }
-            "select-target-cb" => {
-                let settings = self.settings.lock().unwrap();
-                settings.sel_target_cb.to_value()
-            }
+            // "select-target-cb" => {
+            //     let settings = self.settings.lock().unwrap();
+            //     settings.sel_target_cb.to_value()
+            // }
             _ => unimplemented!(),
         }
     }
@@ -385,13 +385,13 @@ impl PushSrcImpl for ScapSrc {
         {
             let state = self.state.lock().unwrap();
 
-            let neg_format = match &state.info {
-                Some(i) => i.format(),
+            let info = match &state.info {
+                Some(i) => i,
                 None => return Err(gst::FlowError::NotNegotiated),
             };
 
             if (state.width, state.height) != (frame_info.width as i32, frame_info.height as i32)
-                || neg_format != frame_info.gst_v_format
+                || info.format() != frame_info.gst_v_format
             {
                 gst::debug!(
                     CAT,
