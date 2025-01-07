@@ -22,6 +22,38 @@ static CAT: LazyLock<gst::DebugCategory> = LazyLock::new(|| {
     )
 });
 
+struct FrameInfo {
+    width: u32,
+    height: u32,
+    gst_v_format: gst_video::VideoFormat,
+    pts: u64,
+}
+
+macro_rules! frame_info {
+    ($frame:expr, $gst_fmt:expr) => {
+        FrameInfo {
+            width: $frame.width as u32,
+            height: $frame.height as u32,
+            gst_v_format: $gst_fmt,
+            pts: $frame.display_time,
+        }
+    };
+}
+
+impl FrameInfo {
+    pub fn new(frame: &scap::frame::Frame) -> Option<Self> {
+        Some(match frame {
+            scap::frame::Frame::RGB(f) => frame_info!(f, gst_video::VideoFormat::Rgb),
+            scap::frame::Frame::RGBx(f) => frame_info!(f, gst_video::VideoFormat::Rgbx),
+            scap::frame::Frame::XBGR(f) => frame_info!(f, gst_video::VideoFormat::Xbgr),
+            scap::frame::Frame::BGRx(f) => frame_info!(f, gst_video::VideoFormat::Bgrx),
+            scap::frame::Frame::BGR0(f) => frame_info!(f, gst_video::VideoFormat::Bgrx),
+            scap::frame::Frame::BGRA(f) => frame_info!(f, gst_video::VideoFormat::Bgra),
+            _ => return None,
+        })
+    }
+}
+
 struct Settings {
     pub show_cursor: bool,
     pub fps: u32,
@@ -62,7 +94,51 @@ impl Default for ScapSrc {
     }
 }
 
-impl ScapSrc {}
+impl ScapSrc {
+    fn ensure_correct_format(&self, frame_info: &FrameInfo) -> Result<(), gst::FlowError> {
+        let state = self.state.lock().unwrap();
+
+        let info = match &state.info {
+            Some(i) => i,
+            None => return Err(gst::FlowError::NotNegotiated),
+        };
+
+        if (state.width, state.height) != (frame_info.width as i32, frame_info.height as i32)
+            || info.format() != frame_info.gst_v_format
+        {
+            gst::debug!(
+                CAT,
+                imp = self,
+                "Resolutions differ. Will try to renegotiate"
+            );
+
+            let new_video_info = gst_video::VideoInfo::builder(
+                frame_info.gst_v_format,
+                frame_info.width,
+                frame_info.height,
+            )
+            .build()
+            .map_err(|e| {
+                gst::error!(CAT, imp = self, "Failed to create video info: {e}");
+                gst::FlowError::Error
+            })?;
+
+            let new_caps = new_video_info.to_caps().map_err(|e| {
+                gst::error!(CAT, imp = self, "Failed to create caps: {e}");
+                gst::FlowError::Error
+            })?;
+
+            drop(state);
+
+            if let Err(e) = self.obj().set_caps(&new_caps) {
+                gst::error!(CAT, imp = self, "Failed to set caps: {e}");
+                return Err(gst::FlowError::Error);
+            }
+        }
+
+        Ok(())
+    }
+}
 
 #[glib::object_subclass]
 impl ObjectSubclass for ScapSrc {
@@ -317,38 +393,6 @@ impl BaseSrcImpl for ScapSrc {
     }
 }
 
-struct FrameInfo {
-    width: u32,
-    height: u32,
-    gst_v_format: gst_video::VideoFormat,
-    pts: u64,
-}
-
-macro_rules! frame_info {
-    ($frame:expr, $gst_fmt:expr) => {
-        FrameInfo {
-            width: $frame.width as u32,
-            height: $frame.height as u32,
-            gst_v_format: $gst_fmt,
-            pts: $frame.display_time,
-        }
-    };
-}
-
-impl FrameInfo {
-    pub fn new(frame: &scap::frame::Frame) -> Option<Self> {
-        Some(match frame {
-            scap::frame::Frame::RGB(f) => frame_info!(f, gst_video::VideoFormat::Rgb),
-            scap::frame::Frame::RGBx(f) => frame_info!(f, gst_video::VideoFormat::Rgbx),
-            scap::frame::Frame::XBGR(f) => frame_info!(f, gst_video::VideoFormat::Xbgr),
-            scap::frame::Frame::BGRx(f) => frame_info!(f, gst_video::VideoFormat::Bgrx),
-            scap::frame::Frame::BGR0(f) => frame_info!(f, gst_video::VideoFormat::Bgrx),
-            scap::frame::Frame::BGRA(f) => frame_info!(f, gst_video::VideoFormat::Bgra),
-            _ => return None,
-        })
-    }
-}
-
 impl PushSrcImpl for ScapSrc {
     fn create(&self, _: Option<&mut gst::BufferRef>) -> Result<CreateSuccess, gst::FlowError> {
         let Some(ref cap) = *self.capturer.lock().unwrap() else {
@@ -365,48 +409,7 @@ impl PushSrcImpl for ScapSrc {
             return Err(gst::FlowError::Error);
         };
 
-        // New scope to prevent deadlock later
-        {
-            let state = self.state.lock().unwrap();
-
-            let info = match &state.info {
-                Some(i) => i,
-                None => return Err(gst::FlowError::NotNegotiated),
-            };
-
-            if (state.width, state.height) != (frame_info.width as i32, frame_info.height as i32)
-                || info.format() != frame_info.gst_v_format
-            {
-                gst::debug!(
-                    CAT,
-                    imp = self,
-                    "Resolutions differ. Will try to renegotiate"
-                );
-
-                let new_video_info = gst_video::VideoInfo::builder(
-                    frame_info.gst_v_format,
-                    frame_info.width,
-                    frame_info.height,
-                )
-                .build()
-                .map_err(|e| {
-                    gst::error!(CAT, imp = self, "Failed to create video info: {e}");
-                    gst::FlowError::Error
-                })?;
-
-                let new_caps = new_video_info.to_caps().map_err(|e| {
-                    gst::error!(CAT, imp = self, "Failed to create caps: {e}");
-                    gst::FlowError::Error
-                })?;
-
-                drop(state);
-
-                if let Err(e) = self.obj().set_caps(&new_caps) {
-                    gst::error!(CAT, imp = self, "Failed to set caps: {e}");
-                    return Err(gst::FlowError::Error);
-                }
-            }
-        }
+        self.ensure_correct_format(&frame_info)?;
 
         let mut buffer = match frame {
             scap::frame::Frame::RGB(f) => gst::Buffer::from_slice(f.data),
