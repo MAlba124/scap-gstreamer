@@ -84,13 +84,13 @@ impl ObjectImpl for ScapSrc {
                     .build(),
                 glib::ParamSpecBoolean::builder("show-cursor")
                     .nick("Show cursor")
-                    .blurb("Wheter to capture the cursor or not")
+                    .blurb("Whether to capture the cursor or not")
                     .default_value(DEFAULT_SHOW_CURSOR)
                     .mutable_ready()
                     .build(),
                 // glib::ParamSpecBoxed::builder::<Option<glib::Closure>>("select-target-cb")
                 //     .nick("Select target callback")
-                //     .blurb("Function that accpets a list of targets and returns the target that should be captured")
+                //     .blurb("Function that accepts a list of targets and returns the target that should be captured")
                 //     .mutable_ready()
                 //     .build(),
             ]
@@ -390,7 +390,7 @@ impl PushSrcImpl for ScapSrc {
                 )
                 .build()
                 .map_err(|e| {
-                    gst::error!(CAT, imp = self, "Failed to create vidoe info: {e}");
+                    gst::error!(CAT, imp = self, "Failed to create video info: {e}");
                     gst::FlowError::Error
                 })?;
 
