@@ -324,45 +324,26 @@ struct FrameInfo {
     pts: u64,
 }
 
+macro_rules! frame_info {
+    ($frame:expr, $gst_fmt:expr) => {
+        FrameInfo {
+            width: $frame.width as u32,
+            height: $frame.height as u32,
+            gst_v_format: $gst_fmt,
+            pts: $frame.display_time,
+        }
+    };
+}
+
 impl FrameInfo {
     pub fn new(frame: &scap::frame::Frame) -> Option<Self> {
         Some(match frame {
-            scap::frame::Frame::RGB(f) => Self {
-                width: f.width as u32,
-                height: f.height as u32,
-                gst_v_format: gst_video::VideoFormat::Rgb,
-                pts: f.display_time,
-            },
-            scap::frame::Frame::RGBx(f) => Self {
-                width: f.width as u32,
-                height: f.height as u32,
-                gst_v_format: gst_video::VideoFormat::Rgbx,
-                pts: f.display_time,
-            },
-            scap::frame::Frame::XBGR(f) => Self {
-                width: f.width as u32,
-                height: f.height as u32,
-                gst_v_format: gst_video::VideoFormat::Xbgr,
-                pts: f.display_time,
-            },
-            scap::frame::Frame::BGRx(f) => Self {
-                width: f.width as u32,
-                height: f.height as u32,
-                gst_v_format: gst_video::VideoFormat::Bgrx,
-                pts: f.display_time,
-            },
-            scap::frame::Frame::BGR0(f) => Self {
-                width: f.width as u32,
-                height: f.height as u32,
-                gst_v_format: gst_video::VideoFormat::Bgrx,
-                pts: f.display_time,
-            },
-            scap::frame::Frame::BGRA(f) => Self {
-                width: f.width as u32,
-                height: f.height as u32,
-                gst_v_format: gst_video::VideoFormat::Bgra,
-                pts: f.display_time,
-            },
+            scap::frame::Frame::RGB(f) => frame_info!(f, gst_video::VideoFormat::Rgb),
+            scap::frame::Frame::RGBx(f) => frame_info!(f, gst_video::VideoFormat::Rgbx),
+            scap::frame::Frame::XBGR(f) => frame_info!(f, gst_video::VideoFormat::Xbgr),
+            scap::frame::Frame::BGRx(f) => frame_info!(f, gst_video::VideoFormat::Bgrx),
+            scap::frame::Frame::BGR0(f) => frame_info!(f, gst_video::VideoFormat::Bgrx),
+            scap::frame::Frame::BGRA(f) => frame_info!(f, gst_video::VideoFormat::Bgra),
             _ => return None,
         })
     }
