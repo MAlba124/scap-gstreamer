@@ -251,6 +251,7 @@ impl BaseSrcImpl for ScapSrc {
         let settings = self.settings.lock().unwrap();
 
         if let Some(mut capturer) = capturer.take() {
+            gst::debug!(CAT, imp = self, "Capturer exists, stopping");
             capturer.stop_capture();
         }
 
@@ -275,6 +276,8 @@ impl BaseSrcImpl for ScapSrc {
         .map_err(|e| gst::error_msg!(gst::LibraryError::Init, ["{e}"]))?;
 
         *capturer = Some(new_capturer);
+
+        gst::debug!(CAT, imp = self, "Capturer created");
 
         Ok(())
     }
