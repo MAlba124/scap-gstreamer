@@ -400,12 +400,20 @@ impl PushSrcImpl for ScapSrc {
         };
 
         let frame = cap.get_next_frame().map_err(|e| {
-            gst::error!(CAT, imp = self, "Failed to get next frame: {e}");
+            gst::element_error!(
+                self.obj(),
+                gst::ResourceError::Read,
+                ("Failed to get next frame: {e}")
+            );
             gst::FlowError::Error
         })?;
 
         let Some(frame_info) = FrameInfo::new(&frame) else {
-            gst::error!(CAT, imp = self, "Unsupported frame format received");
+            gst::element_error!(
+                self.obj(),
+                gst::ResourceError::Failed,
+                ("Unsupported frame format received")
+            );
             return Err(gst::FlowError::Error);
         };
 
