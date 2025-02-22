@@ -13,6 +13,7 @@ use scap::capturer::Capturer;
 
 const DEFAULT_FPS: u32 = 25;
 const DEFAULT_SHOW_CURSOR: bool = true;
+const DEFAULT_PERFORM_INTERNAL_PREROLL: bool = false;
 
 static CAT: LazyLock<gst::DebugCategory> = LazyLock::new(|| {
     gst::DebugCategory::new(
@@ -57,6 +58,7 @@ impl FrameInfo {
 struct Settings {
     pub show_cursor: bool,
     pub fps: u32,
+    pub perform_internal_preroll: bool,
     // pub sel_target_cb: Option<glib::Closure>,
 }
 
@@ -65,6 +67,7 @@ impl Default for Settings {
         Self {
             show_cursor: DEFAULT_SHOW_CURSOR,
             fps: DEFAULT_FPS,
+            perform_internal_preroll: DEFAULT_PERFORM_INTERNAL_PREROLL,
             // sel_target_cb: None,
         }
     }
@@ -118,20 +121,21 @@ impl ScapSrc {
                 frame_info.height,
             )
             .build()
-            .map_err(|e| {
-                gst::error!(CAT, imp = self, "Failed to create video info: {e}");
+            .map_err(|err| {
+                gst::error!(CAT, imp = self, "Failed to create video info: {err}");
                 gst::FlowError::Error
             })?;
 
-            let new_caps = new_video_info.to_caps().map_err(|e| {
-                gst::error!(CAT, imp = self, "Failed to create caps: {e}");
+            let new_caps = new_video_info.to_caps().map_err(|err| {
+                gst::error!(CAT, imp = self, "Failed to create caps: {err}");
                 gst::FlowError::Error
             })?;
 
+            // Deadlock prevention
             drop(state);
 
-            if let Err(e) = self.obj().set_caps(&new_caps) {
-                gst::error!(CAT, imp = self, "Failed to set caps: {e}");
+            if let Err(err) = self.obj().set_caps(&new_caps) {
+                gst::error!(CAT, imp = self, "Failed to set caps: {err}");
                 return Err(gst::FlowError::Error);
             }
         }
@@ -162,6 +166,12 @@ impl ObjectImpl for ScapSrc {
                     .nick("Show cursor")
                     .blurb("Whether to capture the cursor or not")
                     .default_value(DEFAULT_SHOW_CURSOR)
+                    .mutable_ready()
+                    .build(),
+                glib::ParamSpecBoolean::builder("perform-internal-preroll")
+                    .nick("Perform internal preroll")
+                    .blurb("Pull one frame from the capture source before format negotiation")
+                    .default_value(DEFAULT_PERFORM_INTERNAL_PREROLL)
                     .mutable_ready()
                     .build(),
                 // glib::ParamSpecBoxed::builder::<Option<glib::Closure>>("select-target-cb")
@@ -213,6 +223,20 @@ impl ObjectImpl for ScapSrc {
 
                 settings.show_cursor = new_show_cursor;
             }
+            "perform-internal-preroll" => {
+                let mut settings = self.settings.lock().unwrap();
+                let new_perf_internal_preroll = value.get().expect("type checked upstream");
+
+                gst::info!(
+                    CAT,
+                    imp = self,
+                    "perform-internal-preroll was changed from `{}` to `{}`",
+                    settings.perform_internal_preroll,
+                    new_perf_internal_preroll,
+                );
+
+                settings.perform_internal_preroll = new_perf_internal_preroll;
+            }
             // "select-target-cb" => {
             //     let mut settings = self.settings.lock().unwrap();
             //     let new_cb = value.get().expect("type checked upstream");
@@ -234,6 +258,10 @@ impl ObjectImpl for ScapSrc {
             "show-cursor" => {
                 let settings = self.settings.lock().unwrap();
                 settings.show_cursor.to_value()
+            }
+            "perform-internal-preroll" => {
+                let settings = self.settings.lock().unwrap();
+                settings.perform_internal_preroll.to_value()
             }
             // "select-target-cb" => {
             //     let settings = self.settings.lock().unwrap();
@@ -339,7 +367,7 @@ impl BaseSrcImpl for ScapSrc {
         //     ]));
         // }
 
-        let new_capturer = Capturer::build(scap::capturer::Options {
+        let mut new_capturer = Capturer::build(scap::capturer::Options {
             fps: settings.fps,
             show_cursor: settings.show_cursor,
             show_highlight: true,
@@ -349,7 +377,39 @@ impl BaseSrcImpl for ScapSrc {
             output_resolution: scap::capturer::Resolution::Captured,
             excluded_targets: None,
         })
-        .map_err(|e| gst::error_msg!(gst::LibraryError::Init, ["{e}"]))?;
+        .map_err(|err| gst::error_msg!(gst::LibraryError::Init, ["{err}"]))?;
+
+        if settings.perform_internal_preroll {
+            gst::info!(CAT, imp = self, "Performing internal preroll");
+            new_capturer.start_capture();
+            let frame = new_capturer.get_next_frame().map_err(|err| {
+                gst::error_msg!(
+                    gst::LibraryError::Init,
+                    ["Failed to perform internal preroll: {err}"]
+                )
+            })?;
+            let frame_info = FrameInfo::new(&frame).unwrap();
+            let video_info = gst_video::VideoInfo::builder(
+                frame_info.gst_v_format,
+                frame_info.width,
+                frame_info.height,
+            )
+            .build()
+            .map_err(|err| {
+                gst::error_msg!(
+                    gst::LibraryError::Init,
+                    ["Failed to create video info: {err}"]
+                )
+            })?;
+
+            // Deadlock prevention
+            drop(settings);
+
+            self.obj().set_caps(&video_info.to_caps().unwrap()).unwrap();
+
+            let mut state = self.state.lock().unwrap();
+            state.base_time = frame_info.pts;
+        }
 
         *capturer = Some(new_capturer);
 
@@ -379,17 +439,38 @@ impl BaseSrcImpl for ScapSrc {
 
         gst::debug!(CAT, imp = self, "Configuring for caps {}", caps);
 
-        let mut state = self.state.lock().unwrap();
-
         let (new_width, new_height) = (info.width(), info.height());
 
         self.obj().set_blocksize(4 * new_width * new_height);
+
+        let mut state = self.state.lock().unwrap();
 
         state.info = Some(info);
         state.width = new_width as i32;
         state.height = new_height as i32;
 
         Ok(())
+    }
+
+    fn query(&self, query: &mut gst::QueryRef) -> bool {
+        use gst::QueryViewMut;
+        let settings = self.settings.lock().unwrap();
+        match query.view_mut() {
+            QueryViewMut::Caps(q) if settings.perform_internal_preroll => {
+                gst::info!(CAT, imp = self, "Returning caps");
+                let state = self.state.lock().unwrap();
+                if let Some(info) = &state.info.as_ref() {
+                    q.set_result(Some(&info.to_caps().unwrap()));
+                    true
+                } else {
+                    false
+                }
+            }
+            _ => {
+                drop(settings);
+                BaseSrcImplExt::parent_query(self, query)
+            }
+        }
     }
 }
 
@@ -399,11 +480,11 @@ impl PushSrcImpl for ScapSrc {
             return Err(gst::FlowError::NotNegotiated);
         };
 
-        let frame = cap.get_next_frame().map_err(|e| {
+        let frame = cap.get_next_frame().map_err(|err| {
             gst::element_error!(
                 self.obj(),
                 gst::ResourceError::Read,
-                ("Failed to get next frame: {e}")
+                ("Failed to get next frame: {err}")
             );
             gst::FlowError::Error
         })?;
