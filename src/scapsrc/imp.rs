@@ -405,7 +405,13 @@ impl BaseSrcImpl for ScapSrc {
             // Deadlock prevention
             drop(settings);
 
-            self.obj().set_caps(&video_info.to_caps().unwrap()).unwrap();
+            self.obj()
+                .set_caps(
+                    &video_info
+                        .to_caps()
+                        .map_err(|err| gst::error_msg!(gst::LibraryError::Init, ["{err}"]))?,
+                )
+                .map_err(|err| gst::error_msg!(gst::LibraryError::Init, ["{err}"]))?;
 
             let mut state = self.state.lock().unwrap();
             state.base_time = frame_info.pts;
